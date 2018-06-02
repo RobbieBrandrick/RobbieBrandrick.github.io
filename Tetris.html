@@ -1,0 +1,674 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="X-UA-Compatible" content="ie=edge">
+    <title>Tetris</title>
+    <style type="text/css">
+        canvas {
+            border: 1px solid black;
+        }
+    </style>
+    <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.1.1/css/bootstrap.min.css" integrity="sha384-WskhaSGFgHYWDcbwN70/dfYBj47jz9qbsMId/iRN3ewGhXQFZCSftd1LZCfmhktB"
+        crossorigin="anonymous">
+</head>
+
+<body>
+
+    <div class="container">
+        <div class="row">
+            <div class="col-xl-6 col-lg-12">
+                <canvas id="tetrisCanvas"></canvas>
+            </div>
+            <div class="col-xl-4  col-lg-12" style="font-size:2em">
+                <div class="row">
+                    <div class="col-md-12">
+                        <canvas id="nextTetrominoCanvas"></canvas>
+                    </div>
+                </div>
+                <div class="row">
+                    <div class="col-md-12">
+                        <label>Level</label>
+                        <span id="level">0</span>
+                    </div>
+                </div>
+                <div class="row">
+                    <div class="col-md-12">
+                        <label>Lines</label>
+                        <span id="lines">0</span>
+                    </div>
+                </div>
+                <div class="row">
+                    <div class="col-md-12">
+                        <label>Score</label>
+                        <span id="score">0</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="modal fade" id="pauseMenu" tabindex="-1" role="dialog" aria-labelledby="pauseMenuLabel" aria-hidden="true">
+            <div class="modal-dialog" role="document">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h5 class="modal-title" id="pauseMenuLabel">Paused</h5>
+                        <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+                            <span aria-hidden="true">&times;</span>
+                        </button>
+                    </div>
+                    <div class="modal-body">
+                        <h5>Controls</h5>
+                        <ul>
+                            <li>Esc - Pause</li>
+                            <li>Arrows - Moves Piece</li>
+                            <li>Space - Rotates Piece</li>
+                        </ul>
+                        <h5>Choose New Level</h5>
+                        <div id="levels">
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" data-dismiss="modal" id="pauseMenuClose" >Close</button>
+                        <button type="button" class="btn btn-primary" id="pauseMenuStart">Start</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://code.jquery.com/jquery-3.2.1.slim.min.js" integrity="sha384-KJ3o2DKtIkvYIK3UENzmM7KCkRr/rE9/Qpg6aAZGJwFDMVNA/GpGFF93hXpG5KkN"
+        crossorigin="anonymous"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/popper.js/1.12.9/umd/popper.min.js" integrity="sha384-ApNbgh9B+Y1QKtv3Rn7W3mgPxhU9K/ScQsAP7hUibX39j7fakFPskvXusvfa0b4Q"
+        crossorigin="anonymous"></script>
+    <script src="https://maxcdn.bootstrapcdn.com/bootstrap/4.0.0/js/bootstrap.min.js" integrity="sha384-JZR6Spejh4U02d8jOt6vLEHfe/JQGiRRSQQxSfFWpi1MquVdAyjUar5+76PVCmYl"
+        crossorigin="anonymous"></script>
+
+    <script type="text/javascript">
+
+        (function () {
+
+            //
+            //Helpers
+            //
+            function timestamp() { return performance.now(); }
+            function get(id) { return document.getElementById(id); }
+            function html(id, html) { get(id).innerHTML = html; }
+
+            //
+            //Game Constants
+            //
+            const maxLevel = 18;
+            const levels = [48, 43, 38, 33, 28, 23, 18, 13, 8, 6, 5, 5, 5, 4, 4, 4, 3, 3, 3, 2]
+            //19-28             2 (0.03s)
+            // 29+             1 (0.02s)                
+            const maxRows = 20;
+            const maxColumns = 10;
+            const maxNextColumns = 5;
+            const maxNextRows = 5;
+            const blockWidth = 50;
+            const blockHeight = 50;
+            const KEY = { LEFT: 37, UP: 38, RIGHT: 39, DOWN: 40, ESC: 27, SPACE: 32 };
+            const tetrominoes = {
+                I: { blocks: [0x0F00, 0x2222, 0x00F0, 0x4444], color: 'cyan' },
+                J: { blocks: [0x44C0, 0x8E00, 0x6440, 0x0E20], color: 'blue' },
+                L: { blocks: [0x4460, 0x0E80, 0xC440, 0x2E00], color: 'orange' },
+                O: { blocks: [0x0660, 0x0660, 0x0660, 0x0660], color: 'yellow' },
+                S: { blocks: [0x06C0, 0x8C40, 0x6C00, 0x4620], color: 'green' },
+                Z: { blocks: [0x0C60, 0x4C80, 0xC600, 0x2640], color: 'red' },
+                T: { blocks: [0x0E40, 0x4C40, 0x4E00, 0x4640], color: 'purple' },
+            }
+
+            //
+            //Game Variables
+            //
+            var tetrisContext;
+            var nextContext;
+            var current;
+            var next;
+            var score = 0;
+            var lines = 0;
+            var level = 0;
+            var lastFrame;
+            var dropTime = 0;
+            var inputTime = 0;
+            var blocks = [];
+            var input = {};
+            var invalidate;
+            var isPlaying = true;
+
+            //
+            //Game Logic
+            //
+
+            function run() {
+
+                setupCanvas();
+                setUpPause();
+                registerEvents();
+                reset();
+                lastFrame = timestamp();
+                gameloop();
+
+            }
+
+            function gameloop() {
+                requestAnimationFrame(gameloop);
+
+                var now = timestamp();
+
+                update((now - lastFrame) / 1000);
+
+                draw();
+
+                lastFrame = now;
+            }
+
+            function setupCanvas() {
+
+                var tetrisCanvas = get("tetrisCanvas");
+                tetrisCanvas.height = blockHeight * maxRows;
+                tetrisCanvas.width = blockWidth * maxColumns;
+                tetrisContext = tetrisCanvas.getContext('2d');
+
+                var nextTetrominoCanvas = get("nextTetrominoCanvas");
+                nextTetrominoCanvas.height = blockHeight * maxNextRows;
+                nextTetrominoCanvas.width = blockWidth * maxNextColumns;
+                nextContext = nextTetrominoCanvas.getContext('2d');
+
+            }
+
+            function setUpPause() {
+
+                let levels = get("levels");
+
+                for (let i = 0; i <= 10; i++) {
+
+                    let button = document.createElement("button");
+                    button.innerText = i;
+                    button.onclick = function () { reset(); level = this.innerText; $("#pauseMenu").modal('toggle'); };
+                    button.classList = "btn btn-primary";
+                    levels.appendChild(button);
+
+                }
+
+            }
+
+            function update(time) {
+
+                inputTime += time;
+
+                if (inputTime > 4 / 60) {
+                    inputTime = 0;
+                    handleInput();
+                }
+
+                dropTime += time;
+
+                if (dropTime > levels[level] / 60) {
+                    dropTime = 0;
+                    drop()
+                }
+
+            }
+
+            function registerEvents() {
+                document.addEventListener("keydown", handleKeyDown);
+                document.addEventListener("keyup", handleKeyUp);
+                get("pauseMenuStart").addEventListener("click", pause);
+                get("pauseMenuClose").addEventListener("click", pause);                
+            }
+
+            function handleKeyDown(event) {
+
+                var handled = false;
+
+                if (event.keyCode == KEY.LEFT) {
+                    input = KEY.LEFT;
+                    handled = true;
+                } else if (event.keyCode == KEY.UP) {
+                    input = KEY.UP;
+                    handled = true;
+                } else if (event.keyCode == KEY.RIGHT) {
+                    input = KEY.RIGHT;
+                    handled = true;
+                } else if (event.keyCode == KEY.DOWN) {
+                    input = KEY.DOWN;
+                    handled = true;
+                } else if (event.keyCode == KEY.SPACE) {
+                    input = KEY.SPACE;
+                    handled = true;
+                } else if (event.keyCode == KEY.ESC) {
+                    input = KEY.ESC;
+                    handled = true;
+                }
+
+                if (handled) {
+                    event.preventDefault();
+                }
+
+            };
+
+            function handleKeyUp(event) {
+
+                var handled = false;
+
+                if (event.keyCode == KEY.LEFT) {
+                    input = 0;
+                    handled = true;
+                } else if (event.keyCode == KEY.UP) {
+                    input = 0;
+                    handled = true;
+                } else if (event.keyCode == KEY.RIGHT) {
+                    input = 0;
+                    handled = true;
+                } else if (event.keyCode == KEY.DOWN) {
+                    input = 0;
+                    handled = true;
+                }
+
+                if (handled) {
+                    event.preventDefault();
+                }
+
+            };
+
+            function invalidate() { invalidate.gameboard = true; }
+            function invalidateScore() { invalidate.score = true; }
+            function invalidateNext() { invalidate.next = true; }
+            function invalidatePause() { invalidate.pause = true; }
+
+            function getBlocks(x, y) {
+
+                return blocks && blocks[x] ? blocks[x][y] : null;
+
+            }
+
+            function setBlocks(x, y, type) {
+                blocks[x] = blocks[x] || [];
+                blocks[x][y] = type;
+                invalidate();
+            }
+
+            function forEachBlock(tetromino, x, y, fn) {
+
+                var row = 0;
+                var column = 0
+                var blocks = tetromino.blocks[tetromino.direction];
+                for (var bit = 0x8000; bit > 0; bit = bit >> 1) {
+                    if (blocks & bit) {
+                        fn(x + column, y + row);
+                    }
+                    if (++column === 4) {
+                        column = 0;
+                        ++row;
+                    }
+
+                }
+            }
+
+            function collision(tetromino, x, y) {
+
+                var result = false;
+
+                forEachBlock(tetromino, x, y, function (x, y) {
+
+                    if (x < 0 || x >= maxColumns || y >= maxRows || getBlocks(x, y)) {
+                        result = true;
+                    }
+
+                })
+
+                return result;
+
+            }
+
+            function rotate() {
+
+                if (!isPlaying) {
+                    return;
+                }
+
+                var previousDirection = current.direction;
+
+                if (current.direction == 3) {
+                    current.direction = 0;
+                } else {
+                    current.direction++;
+                }
+
+                if (collision(current, current.x, current.y)) {
+                    current.direction = previousDirection;
+                }
+
+                invalidate();
+
+            }
+
+            function move(input) {
+
+                if (!isPlaying) {
+                    return;
+                }
+
+                var x = current.x;
+                var y = current.y;
+
+                switch (input) {
+                    case KEY.LEFT:
+                        x--;
+                        break;
+                    case KEY.RIGHT:
+                        x++;
+                        break;
+                    case KEY.DOWN:
+                        y++;
+                        break;
+                    default:
+                }
+
+                if (!collision(current, x, y)) {
+                    current.x = x;
+                    current.y = y;
+                    invalidate();
+                    return true;
+                } else {
+                    return false;
+                }
+
+            }
+
+            function pause() {
+                isPlaying = !isPlaying;
+
+                invalidatePause();
+            }
+
+            function handleInput() {
+
+                if (!input) {
+                    return;
+                }
+
+                switch (input) {
+                    case KEY.LEFT:
+                        move(KEY.LEFT);
+                        break;
+                    case KEY.RIGHT:
+                        move(KEY.RIGHT);
+                        break;
+                    case KEY.DOWN:
+                        drop();
+                        break;
+                    case KEY.SPACE:
+                        input = 0;
+                        rotate();
+                        break;
+                    case KEY.ESC:
+                        pause();
+                        input = 0;
+                        break;
+                    default:
+                }
+
+            }
+
+            function getRandomTetromino() {
+
+                var random = Math.floor(Math.random() * 8);
+                var allTetrominoes = [tetrominoes.I, tetrominoes.J, tetrominoes.L, tetrominoes.O, tetrominoes.S, tetrominoes.Z, tetrominoes.T, null];
+                var tetromino = allTetrominoes[random];
+
+                if ((tetromino && next && tetromino.blocks == next.blocks) || !tetromino) {
+
+                    random = Math.floor(Math.random() * 7);
+                    tetromino = allTetrominoes[random];
+
+                }
+
+                var result = {
+                    blocks: tetromino.blocks,
+                    color: tetromino.color,
+                    x: 4,
+                    y: -3,
+                    direction: 0,
+                };
+
+                return result;
+
+            }
+
+            function clearLines() {
+
+                var numberOfLinesCleared = 0;
+
+                for (var y = 0; y < maxRows; y++) {
+
+                    var clearLine = true;
+
+                    for (var x = 0; x < maxColumns; x++) {
+
+                        if (!getBlocks(x, y)) {
+                            clearLine = false;
+                            break;
+                        }
+
+                    }
+
+                    if (clearLine) {
+                        numberOfLinesCleared++;
+                        lines++;
+
+                        for (var y2 = y; y2 > 0; y2--) {
+                            for (var x2 = 0; x2 < maxColumns; x2++) {
+                                blocks[x2][y2] = blocks[x2][y2 - 1];
+                            }
+                        }
+
+                        invalidate();
+                        invalidateScore();
+
+                    }
+
+                }
+
+                return numberOfLinesCleared;
+
+            }
+
+            function getNextTetromino() {
+
+                current = next || getRandomTetromino();
+                next = getRandomTetromino();
+                invalidateNext();
+
+            }
+
+            function reset() {
+
+                score = 0;
+                lines = 0;
+                level = 0;
+                blocks = [];
+
+                pause();
+                invalidate();
+                invalidateScore();
+                invalidateNext();
+                invalidatePause();
+                getNextTetromino();
+
+            }
+
+            function gameOver() {
+
+                var isGameOver = false;
+
+                for (var x = 0; x < maxColumns; x++) {
+
+                    if (getBlocks(x, 0)) {
+                        isGameOver = true;
+                        break;
+                    }
+
+                }
+
+                return isGameOver;
+
+            }
+
+            function drop() {
+
+                if (!isPlaying) {
+                    return;
+                }
+
+                var isMoved = move(KEY.DOWN);
+
+                if (!isMoved) {
+
+                    forEachBlock(current, current.x, current.y, function (x, y) {
+                        setBlocks(x, y, current)
+                    })
+
+                    getNextTetromino();
+                    let clearedLines = clearLines();
+                    updateScore(clearedLines);
+                    updateLevel();
+
+                    if (gameOver()) {
+                        reset();
+                    }
+
+                    invalidate();
+
+                }
+
+            }
+
+            function updateScore(clearedLines) {
+
+                score += clearedLines > 0 ? 100 * Math.pow(2, clearedLines - 1) : 0;
+
+            }
+
+            function updateLevel() {
+
+                if (level >= maxLevel) {
+                    return;
+                }
+
+                if (lines / 10 >= level + 1) {
+                    level++;
+                }
+
+            }
+
+            //
+            //Render
+            //
+            function draw() {
+
+                drawGameboard();
+                drawScore();
+                drawNext();
+                drawPause();
+
+            }
+
+            function drawGameboard() {
+                if (!invalidate.gameboard) {
+                    return;
+                }
+
+                tetrisContext.clearRect(0, 0, maxColumns * blockWidth, maxRows * blockHeight);
+
+                drawExisting();
+
+                drawCurrent();
+
+                invalidate.gameboard = false;
+
+            }
+
+            function drawScore() {
+
+                if (!invalidate.score) {
+                    return;
+                }
+
+                html("score", score);
+                html("lines", lines);
+                html("level", level);
+
+                invalidate.score = false;
+
+            }
+
+            function drawNext() {
+                if (!invalidate.next) {
+                    return;
+                }
+
+                nextContext.clearRect(0, 0, blockWidth * maxNextColumns, blockHeight * maxNextRows);
+
+                forEachBlock(next, 0.5, 0.5, function (x, y) {
+                    drawBlock(nextContext, x, y, next.color);
+                })
+
+                invalidate.next = false;
+            }
+
+            function drawPause() {
+                if (!invalidate.pause) {
+                    return;
+                }
+
+                $("#pauseMenu").modal('toggle');
+
+                invalidate.pause = false;
+
+            }
+
+            function drawBlock(ctx, x, y, color) {
+                ctx.fillStyle = color;
+                ctx.fillRect(x * blockWidth, y * blockWidth, blockWidth, blockHeight);
+                ctx.fill();
+            }
+
+            function drawExisting() {
+                var block;
+
+                for (var x = 0; x < maxColumns; x++) {
+
+                    for (var y = 0; y < maxRows; y++) {
+
+                        if (block = getBlocks(x, y)) {
+                            drawBlock(tetrisContext, x, y, block.color);
+
+                        }
+
+                    }
+
+                }
+
+            }
+
+            function drawCurrent() {
+                forEachBlock(current, current.x, current.y, function (x, y) {
+                    drawBlock(tetrisContext, x, y, current.color);
+                })
+            }
+
+            //
+            //Its Run Time
+            //
+            run();
+        })();
+
+    </script>
+
+</body>
+
+</html>
