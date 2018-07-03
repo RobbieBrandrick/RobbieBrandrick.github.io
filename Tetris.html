@@ -10,42 +10,38 @@
         canvas {
             border: 1px solid black;
         }
+
+        .horizontalCenter {
+            width: 100%;
+            text-align: center;
+        }
+
+        canvas {
+            display: inline;
+        }
     </style>
     <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.1.1/css/bootstrap.min.css" integrity="sha384-WskhaSGFgHYWDcbwN70/dfYBj47jz9qbsMId/iRN3ewGhXQFZCSftd1LZCfmhktB"
         crossorigin="anonymous">
+
 </head>
 
 <body>
 
     <div class="container">
-        <div class="row">
-            <div id="canvasDiv" class="col">
-                <canvas id="tetrisCanvas"></canvas>
+        <div class="row" id="stats">
+            <div class="col align-middle horizontalCenter" style="font-size: 1rem;">
+                <label>Level</label>
+                <span id="level">0</span>
+                <label>Lines</label>
+                <span id="lines">0</span>
+                <label>Score</label>
+                <span id="score">0</span>
+                <canvas id="nextTetrominoCanvas"></canvas>
             </div>
-            <div class="col" style="font-size:2em">
-                <div class="row">
-                    <div class="col-md-12">
-                        <canvas id="nextTetrominoCanvas"></canvas>
-                    </div>
-                </div>
-                <div class="row">
-                    <div class="col-md-12">
-                        <label>Level</label>
-                        <span id="level">0</span>
-                    </div>
-                </div>
-                <div class="row">
-                    <div class="col-md-12">
-                        <label>Lines</label>
-                        <span id="lines">0</span>
-                    </div>
-                </div>
-                <div class="row">
-                    <div class="col-md-12">
-                        <label>Score</label>
-                        <span id="score">0</span>
-                    </div>
-                </div>
+        </div>
+        <div class="row">
+            <div id="canvasDiv" class="col horizontalCenter">
+                <canvas id="tetrisCanvas"></canvas>
             </div>
         </div>
 
@@ -69,6 +65,7 @@
                         <ul>
                             <li>NOT SUPPORTED - Pause</li>
                             <li>Swipe - Moves Piece</li>
+                            <li>Quick Swipe Down- Force Piece Down</li>
                             <li>Tap - Rotates Piece</li>
                         </ul>
                         <h5>Choose New Level</h5>
@@ -107,8 +104,6 @@
             //
             const maxLevel = 18;
             const levels = [48, 43, 38, 33, 28, 23, 18, 13, 8, 6, 5, 5, 5, 4, 4, 4, 3, 3, 3, 2]
-            //19-28             2 (0.03s)
-            // 29+             1 (0.02s)                
             const maxRows = 20;
             const maxColumns = 10;
             const maxNextColumns = 5;
@@ -129,6 +124,7 @@
                 RIGHT: 3,
                 DOWN: 4,
                 ROTATE: 5,
+                FORCEDOWN: 6,
             };
 
             //
@@ -138,7 +134,7 @@
             var nextContext;
             var current;
             var blockWidth = 50;
-            var blockHeight = 50;            
+            var blockHeight = 50;
             var next;
             var score = 0;
             var lines = 0;
@@ -152,7 +148,7 @@
             var lastTouchPos;
             var currentState = TOUCHSTATE.DEFAULT;
             var isGestureMove = false;
-            var rafPending = false;
+            var isForceDown = false;
             var invalidate;
             var isPlaying = true;
 
@@ -195,13 +191,40 @@
 
             }
 
-            function resize(){
+            function resize() {
 
-                let canvasDiv = get("canvasDiv");
-                blockHeight = window.innerHeight / maxRows;
-                blockWidth = (canvasDiv.clientWidth  * .75) / maxColumns;
+                resizeNextCanvas();
+                resizeCanvas();
 
-                if(blockHeight < blockWidth){
+                invalidate();
+                invalidateNext();
+
+            }
+
+            function resizeNextCanvas() {
+
+                blockHeight = (window.innerHeight - 32) / maxRows;
+                blockWidth = (window.innerWidth - 32) / maxColumns;
+
+                if (blockHeight < blockWidth) {
+                    blockWidth = blockHeight;
+                } else {
+                    blockHeight = blockWidth;
+                }
+
+                var nextTetrominoCanvas = get("nextTetrominoCanvas");
+                nextTetrominoCanvas.height = blockHeight * maxNextRows * 0.5;
+                nextTetrominoCanvas.width = blockWidth * maxNextColumns * 0.5;
+
+            }
+
+            function resizeCanvas() {
+
+                let stats = get("stats");
+                blockHeight = (window.innerHeight - stats.clientHeight - 32) / maxRows;
+                blockWidth = (window.innerWidth - 32) / maxColumns;
+
+                if (blockHeight < blockWidth) {
                     blockWidth = blockHeight;
                 } else {
                     blockHeight = blockWidth;
@@ -210,10 +233,6 @@
                 var tetrisCanvas = get("tetrisCanvas");
                 tetrisCanvas.height = blockHeight * maxRows;
                 tetrisCanvas.width = blockWidth * maxColumns;
-
-                var nextTetrominoCanvas = get("nextTetrominoCanvas");
-                nextTetrominoCanvas.height = blockHeight * maxNextRows;
-                nextTetrominoCanvas.width = blockWidth * maxNextColumns;
 
             }
 
@@ -225,7 +244,7 @@
 
                     let button = document.createElement("button");
                     button.innerText = i;
-                    button.onclick = function () { reset(); level = this.innerText; $("#pauseMenu").modal('toggle'); };
+                    button.onclick = function () { reset(); level = parseInt(this.innerText); $("#pauseMenu").modal('toggle'); };
                     button.classList = "btn btn-primary";
                     levels.appendChild(button);
 
@@ -237,7 +256,7 @@
 
                 inputTime += time;
 
-                if (inputTime > 4 / 60) {
+                if (inputTime > 3 / 60) {
                     inputTime = 0;
                     handleKeyboardInput();
                     handleTouchInput();
@@ -253,24 +272,21 @@
             }
 
             function registerEvents() {
-                document.addEventListener("keydown", handleKeyDown);
-                document.addEventListener("keyup", handleKeyUp);
+
+                document.addEventListener("keydown", handleKeyUpDown);
+                document.addEventListener("keyup", handleKeyUpDown);
                 window.addEventListener("resize", resize)
+
                 get("pauseMenuStart").addEventListener("click", pause);
                 get("pauseMenuResume").addEventListener("click", pause);
                 get("pauseMenuX").addEventListener("click", pause);
-                let tetrisCanvas = get("tetrisCanvas");
 
-                // Add Touch Listener
+                let tetrisCanvas = get("tetrisCanvas");
                 tetrisCanvas.addEventListener('touchstart', handleGestureStart, true);
                 tetrisCanvas.addEventListener('touchmove', handleGestureMove, true);
                 tetrisCanvas.addEventListener('touchend', handleGestureEnd, true);
                 tetrisCanvas.addEventListener('touchcancel', handleGestureEnd, true);
-
-                // Add Mouse Listener
                 tetrisCanvas.addEventListener('mousedown', handleGestureStart, true);
-                // }
-
             }
 
             function handleGestureStart(evt) {
@@ -280,13 +296,12 @@
                     return;
                 }
 
-                console.info("Gensture Start");
-
                 document.addEventListener('mousemove', handleGestureMove, true);
                 document.addEventListener('mouseup', handleGestureEnd, true);
 
 
                 initialTouchPos = getGesturePointFromEvent(evt);
+                isForceDown = false;
 
             }
 
@@ -297,19 +312,15 @@
                     return;
                 }
 
-                if (rafPending)
+                if (isForceDown) {
                     return;
+                }
 
-                rafPending = true;
-
-                console.info("Gensture Move");
-
-                isGestureMove = true;
                 lastTouchPos = getGesturePointFromEvent(evt);
 
                 updateSwipeRestPosition();
 
-                initialTouchPos = lastTouchPos
+                initialTouchPos = lastTouchPos;
 
             }
 
@@ -320,51 +331,48 @@
                     return;
                 }
 
-                console.info("Gensture End");
-
                 document.removeEventListener('mousemove', handleGestureMove, true);
                 document.removeEventListener('mouseup', handleGestureEnd, true);
 
-                updateSwipeRestPosition();
+                if (!isGestureMove) {
+                    currentState = TOUCHSTATE.ROTATE;
+                }
 
                 initialTouchPos = null;
                 isGestureMove = false;
-                rafPending = false;
             }
 
             function updateSwipeRestPosition() {
 
-                if (!isGestureMove) {
-                    currentState = TOUCHSTATE.ROTATE;
-                    return;
-                }
-
-                var differenceInX = initialTouchPos.x - lastTouchPos.x;
-                var differenceInY = initialTouchPos.y - lastTouchPos.y;
-                var newState = TOUCHSTATE.DEFAULT;
-
+                let differenceInX = initialTouchPos.x - lastTouchPos.x;
+                let differenceInY = initialTouchPos.y - lastTouchPos.y;
 
                 if (Math.abs(differenceInX) > Math.abs(differenceInY)) {
-                    if (differenceInX > 0) {
-                        newState = TOUCHSTATE.LEFT;
-                    } else if (differenceInX < 0) {
-                        newState = TOUCHSTATE.RIGHT;
+                    if (differenceInX > 3) {
+                        currentState = TOUCHSTATE.LEFT;
+                    } else if (differenceInX < -3) {
+                        currentState = TOUCHSTATE.RIGHT;
                     }
                 } else {
-                    if (differenceInY < 0) {
-                        newState = TOUCHSTATE.DOWN;
+                    if (differenceInY < -30) {
+                        currentState = TOUCHSTATE.FORCEDOWN;
+                        isForceDown = true;
+                    } else if (differenceInY < -3) {
+                        currentState = TOUCHSTATE.DOWN;
                     }
                 }
 
-                currentState = newState;
-                console.info(currentState);
+                if (!isGestureMove && currentState != TOUCHSTATE.DEFAULT) {
+                    isGestureMove = true;
+                }
 
             }
 
             function getGesturePointFromEvent(evt) {
-                var point = {};
 
-                if (evt.targetTouches) {
+                let point = {};
+
+                if (evt.targetTouches && evt.touches.length > 0) {
                     point.x = evt.targetTouches[0].clientX;
                     point.y = evt.targetTouches[0].clientY;
                 } else {
@@ -375,52 +383,22 @@
                 return point;
             }
 
-            function handleKeyDown(event) {
+            function handleKeyUpDown(event) {
 
-                var handled = false;
+                let handled = false;
 
-                if (event.keyCode == KEY.LEFT) {
-                    input = KEY.LEFT;
-                    handled = true;
-                } else if (event.keyCode == KEY.UP) {
-                    input = KEY.UP;
-                    handled = true;
-                } else if (event.keyCode == KEY.RIGHT) {
-                    input = KEY.RIGHT;
-                    handled = true;
-                } else if (event.keyCode == KEY.DOWN) {
-                    input = KEY.DOWN;
-                    handled = true;
-                } else if (event.keyCode == KEY.SPACE) {
-                    input = KEY.SPACE;
-                    handled = true;
-                } else if (event.keyCode == KEY.ESC) {
-                    input = KEY.ESC;
-                    handled = true;
-                }
+                for (let key in KEY) {
 
-                if (handled) {
-                    event.preventDefault();
-                }
+                    if (event.keyCode == KEY[key]) {
 
-            };
+                        input = event.type == "keydown" ? KEY[key] : 0;
 
-            function handleKeyUp(event) {
+                        handled = true;
 
-                var handled = false;
+                        break;
 
-                if (event.keyCode == KEY.LEFT) {
-                    input = 0;
-                    handled = true;
-                } else if (event.keyCode == KEY.UP) {
-                    input = 0;
-                    handled = true;
-                } else if (event.keyCode == KEY.RIGHT) {
-                    input = 0;
-                    handled = true;
-                } else if (event.keyCode == KEY.DOWN) {
-                    input = 0;
-                    handled = true;
+                    }
+
                 }
 
                 if (handled) {
@@ -588,10 +566,12 @@
                     case TOUCHSTATE.ROTATE:
                         rotate();
                         break;
+                    case TOUCHSTATE.FORCEDOWN:
+                        forceDrop();
+                        break;
                 }
 
                 currentState = TOUCHSTATE.DEFAULT;
-                rafPending = false;
 
             }
 
@@ -728,9 +708,23 @@
 
             }
 
+            function forceDrop() {
+
+                if (!isPlaying) {
+                    return;
+                }
+
+                while (move(KEY.DOWN)) {
+
+                }
+
+                drop();
+
+            }
+
             function updateScore(clearedLines) {
 
-                score += clearedLines > 0 ? 100 * Math.pow(2, clearedLines - 1) : 0;
+                score += clearedLines > 0 ? 100 * Math.pow(2, clearedLines - 1) * (level + 1) : 0;
 
             }
 
@@ -795,7 +789,7 @@
                 nextContext.clearRect(0, 0, blockWidth * maxNextColumns, blockHeight * maxNextRows);
 
                 forEachBlock(next, 0.5, 0.5, function (x, y) {
-                    drawBlock(nextContext, x, y, next.color);
+                    drawNextBlock(nextContext, x, y, next.color);
                 })
 
                 invalidate.next = false;
@@ -815,6 +809,12 @@
             function drawBlock(ctx, x, y, color) {
                 ctx.fillStyle = color;
                 ctx.fillRect(x * blockWidth, y * blockWidth, blockWidth, blockHeight);
+                ctx.fill();
+            }
+
+            function drawNextBlock(ctx, x, y, color) {
+                ctx.fillStyle = color;
+                ctx.fillRect(x * blockWidth * 0.5, y * blockWidth * 0.5, blockWidth * 0.5, blockHeight * 0.5);
                 ctx.fill();
             }
 
